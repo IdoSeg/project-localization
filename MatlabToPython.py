@@ -5,6 +5,25 @@ import itertools as iter
 import soundfile as sf
 
 def GCC_features_one_frame(x, fs, tua_grid):
+    '''
+    Computes Generalized Cross-Correlation (GCC) features for a single frame of multichannel audio data.
+
+    Args:
+        x (numpy.ndarray): A 2D array of shape (N_sample, NOfChann) representing the multichannel audio data,
+                           where N_sample is the number of time-domain samples, and NOfChann is the number of channels.
+        fs (integer): The sampling frequency of the audio data.
+        tua_grid (numpy.ndarray): A 1D array representing the delay grid (time lags) for cross-correlation computation.
+
+    Returns:
+        numpy.ndarray: A 2D array of shape (N_tua, PN), where N_tua is the length of tua_grid and PN is the number of
+                       microphone pairs. Each column corresponds to the GCC features for a specific microphone pair.
+                       so the returned value is a 2D array which every colmn represent a corrletion of a two signals pair
+
+    Notes:
+        - The function computes the GCC features by calculating the phase transform (PHAT) of the cross-power
+          spectrum between all microphone pairs.
+    '''
+
     # varribles
     NOfChann = len(x[0]) #number of channels //2
     N_sample = len(x) #number of samples //1024
@@ -32,7 +51,7 @@ def GCC_features_one_frame(x, fs, tua_grid):
         kk2_spec = kk2_spec[0:N_freq]       
 
         P = kk1_spec * np.conj(kk2_spec)
-        P = P / np.abs(P + np.finfo(np.float64).eps) #added mechin epsilon
+        P = P / np.abs(P + np.finfo(np.float64).eps) #added mechin epsilon to prevent divding by 0 in an extreme case
 
         spec = np.zeros((N_freq, N_tua ))
         for ind in range(0, N_tua):
@@ -42,10 +61,12 @@ def GCC_features_one_frame(x, fs, tua_grid):
     
     return feast.T 
 
-def GCC_features_full_signals(x, fs, nfft, nhop, N_tua):
-    tua_grid = np.arange(-N_tua, N_tua + 1)/fs #correlletion shifts axis
+def GCC_features_full_signals(x, fs, nfft, nhop, N_half_tua):
+
+    tua_grid = np.arange(-N_half_tua, N_half_tua + 1)/fs #correlletion shifts axis
     N_sample  = len(x)
     NOfChann = len(x[0]) #number of channels //2
+    N_tua = len(tua_grid)
     PN = int(NOfChann * (NOfChann - 1)/2) #number of total possible combination
 
     # padding with zeros until we get a munifactor of nhop
@@ -54,30 +75,67 @@ def GCC_features_full_signals(x, fs, nfft, nhop, N_tua):
     N_frames = int(N_sample / nhop - 1)
     N_sample  = len(x)
     
-    featurs = GCC_features_one_frame(x[0:nfft], fs, tua_grid)
-    for i in range(1, N_frames):
-        start = i * nhop
-        end = start + nfft
-        featurs = np.append(featurs, GCC_features_one_frame(x[start:end], fs, tua_grid), axis=1)
+    if PN == 1: # in this case we dont need a 3D array to represent the featurs, probably can be deleted
+
+        featurs = GCC_features_one_frame(x[0:nfft], fs, tua_grid)
+        for i in range(1, N_frames):
+            start = i * (nfft - nhop)
+            end = start + nfft
+            featurs = np.append(featurs, GCC_features_one_frame(x[start:end], fs, tua_grid), axis=1)
         # rect window
+        return featurs.T
     
-    # featurs3D = featurs.reshape(2*N_tua+1, PN, N_frames) 
-    # featurs3D = featurs3D.reshape(N_frames, 2*N_tua+1, PN)
-    return featurs.T
+    # exemple = np.zeros((rows, colmn, depth))
+    # exemple = np.array((N_frames, N_tua, PN))
+    featurs = np.zeros(shape = (N_frames, N_tua, PN))
+    for frame in range(0, N_frames):
+        start = frame * (nfft - nhop)
+        end = start + nfft
+        featurs[frame, :, :] = GCC_features_one_frame(x[start:end], fs, tua_grid)
+    
+    return featurs
 
 def max_element_tua(features, Ntua):
-    return [(np.argmax(row) - Ntua) for row in features]
+    if features.ndim == 3:
+        max_indices = np.argmax(features, axis=1)
+        return max_indices - Ntua
+    return [(np.argmax(row) - Ntua) for row in features] # first run feats shape is (155,51,1)/(), in the second (155, 51, 6) 
+
 
 if __name__ == '__main__':
+    # Exemples
+    # exemple 1 -> recording the signals using the 2 comuter mics   
     audio_out,fs1 = sf.read("C:/Users/ido26/Documents/vscode projects/Localizetion project/audio_out.wav")
-
+    
     n = np.arange(-25,26)
     res = GCC_features_full_signals(audio_out, fs1, 1024, 512, 25)
     delays = max_element_tua(res, 25)
 
-    plt.plot(n, res[44,:]) #may be with abs, and also in the max element
+    # ploting remdom frame coreletion
+    plt.plot(n, res[44,:])
     plt.show()
     
+    # ploting the max correletion value - frame graph
     plt.plot(delays)
     plt.show()
+
+    #-----------------------------------------------------------------------------------------------------------------------
+    # exemple 2 -> recording the signals using the output device, 6 channels
+    audio_6_outputs, fs2 = sf.read("C:/Users/ido26/Documents/vscode projects/Localizetion project/audio_out_4_mics.wav")
+    
+    n = np.arange(-25,26)
+    res = GCC_features_full_signals(audio_6_outputs[:, 1:5], fs2, 1024, 512, 25)
+    delays = max_element_tua(res, 25)
+
+    # ploting remdom frame coreletion
+    plt.plot(n, res[44,:, 0]) #rendom frame(44), the first pair correletion
+    plt.show()
+
+    # ploting the max correletion value - frame graph
+    plt.plot(delays[:,1]) # the delays for the second pair
+    plt.show()
+
+
+
+
 

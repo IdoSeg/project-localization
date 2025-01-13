@@ -2,8 +2,8 @@ import sounddevice as sd
 import soundfile as sf
 import numpy as np 
 
-# print("Available devices:")
-# print(sd.query_devices())
+print("Available devices:")
+print(sd.query_devices())
 
 # Set default device by index (validate the index for your system)
 device_index = 1  # Replace with the correct device index, -> indexes that works computer: 1,6, microphone array:aolso 1
@@ -23,8 +23,9 @@ try:
     rec = sd.rec(int(duration * fs))  # Record for 'duration' seconds
     sd.wait()  # Wait until recording is finished
     print("Recording complete.")
-    #rec = (rec/np.max(abs(rec),0))*0.9 
+    rec = (rec/np.max(abs(rec),0))*0.9 
     # Save the recording as a WAV file
+    #sf.write('./audio_out_4_mics.wav', rec, fs)
     sf.write('./audio_out.wav', rec, fs)
     print("Audio saved as 'audio_out.wav'.")
 except Exception as e:
