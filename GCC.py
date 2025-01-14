@@ -1,74 +1,172 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.ma.core import argmax
+import itertools as iter
 import soundfile as sf
+from scipy.signal import resample_poly
+import sounddevice as sd
 
-# Function to calculate normalized cross-correlation between two signals
-def correlation(Signal1, Signal2):
-    # Compute the standard deviation (sigma) of the signals
-    sigma1 = np.sqrt(np.correlate(Signal1, Signal1))
-    sigma2 = np.sqrt(np.correlate(Signal2, Signal2))
-    CrossCorr = np.correlate(Signal1, Signal2, mode="full") / (sigma1 * sigma2)
+def GCC_features_one_frame(x, fs, tua_grid):
+    '''
+    Computes Generalized Cross-Correlation (GCC) features for a single frame of multichannel audio data.
 
-    # Compute the normalized cross-correlation
-    return CrossCorr
+    Args:
+        x (numpy.ndarray): A 2D array of shape (N_sample, NOfChann) representing the multichannel audio data,
+                           where N_sample is the number of time-domain samples, and NOfChann is the number of channels.
+        fs (integer): The sampling frequency of the audio data.
+        tua_grid (numpy.ndarray): A 1D array representing the delay grid (time lags) for cross-correlation computation.
 
-# Function to estimate the angle of arrival using 
-# GCC-PHAT (Generalized Cross-Correlation with Phase Transform)
-def GCC_phat(Mics, Signals, fs):
+    Returns:
+        numpy.ndarray: A 2D array of shape (N_tua, PN), where N_tua is the length of tua_grid and PN is the number of
+                       microphone pairs. Each column corresponds to the GCC features for a specific microphone pair.
+                       so the returned value is a 2D array which every colmn represent a corrletion of a two signals pair
 
-    # Check if the number of microphones matches the number of signals
-    if not (len(Mics) == len(Signals)):
-        print("The amount of mic and signals not at the same size")
-        return -1
+    Notes:
+        - The function computes the GCC features by calculating the phase transform (PHAT) of the cross-power
+          spectrum between all microphone pairs.
+    '''
+
+    # varribles
+    NOfChann = len(x[0]) #number of channels //2
+    N_sample = len(x) #number of samples //1024
+    N_freq = int(np.ceil(N_sample/2))+1 #number of rellevent frequencys //513
     
-    # Speed of sound in air (m/s)
-    c = 343
-
-    # Find the time delay (in samples) between the two signals 
-    delta_n = np.argmax(correlation(Signals[0], Signals[1])) - (Signals[1].size-1)
-
-    # Convert the delay from samples to time (seconds)
-    delta_t = delta_n /fs
-
-     # Calculate the distance between the two microphones
-    mic_dist = np.sqrt((Mics[0][0] -Mics[1][0])**2 +(Mics[0][1] -Mics[1][1])**2)
-
-    # Check if the time delay is physically plausible
-    if(np.abs(delta_t) * c < mic_dist):
-        # Compute the angle/direction of arrival (DOA) in degrees
-        theta = np.acos((delta_t*c)/mic_dist)
-        return theta * 180/np.pi
+    #tua_grid = np.arange(-25, 26)/fs #correlletion shifts axis 
+    N_tua = len(tua_grid) #//51 as a defult
+    channalNum = np.arange(0, NOfChann) #array between 1 to number of sinals
+    PN = int(NOfChann * (NOfChann - 1)/2) #number of total possible combination
     
-     # If the delay is too large for the given microphone spacing, print an error
-    print("The delay diffrance between the signals is to big for these micropones indexses")
-    print("Check the micropones  indexses")
-    return -1
+    kp = np.array(list(iter.combinations(channalNum, 2))) #kp is a martix that any row combains to number that represent mic pair
+    feast = np.zeros((PN, N_tua)) #the final feateurs we send
+    
+    for kk in range(0, PN):
+        kk1 = kp[kk, 0]
+        kk2 = kp[kk, 1]
+        
+        kk1_spec = np.fft.fft(x[:, kk1])
+        kk2_spec = np.fft.fft(x[:, kk2])
+        
+        freqs = np.fft.fftfreq(N_sample, 1/fs)
+        f = freqs[0:N_freq]
+        
+        kk1_spec = kk1_spec[0:N_freq]
+        kk2_spec = kk2_spec[0:N_freq]       
+
+        P = kk1_spec * np.conj(kk2_spec)
+        P = P / np.abs(P) + np.finfo(np.float64).eps #added mechin epsilon to prevent divding by 0 in an extreme case
+
+        spec = np.zeros((N_freq, N_tua ))
+        for ind in range(0, N_tua):
+            EXP = np.exp(-2j * np.pi * tua_grid[ind] * f.T)
+            spec[:,ind] = np.real(P * EXP)
+        feast[kk,:] = np.sum(spec, axis=0)  
+    return feast.T 
+
+def GCC_features_full_signals(x, fs, nfft, nhop, N_half_tua, upSampling = 1):
+
+    x, fs = interpolate(x, fs, upSampling, 1)
+
+    tua_grid = np.arange(-N_half_tua, N_half_tua + 1)/fs #correlletion shifts axis
+    N_sample  = len(x)
+    NOfChann = len(x[0]) #number of channels //2
+    N_tua = len(tua_grid)
+    PN = int(NOfChann * (NOfChann - 1)/2) #number of total possible combination
+
+    # padding with zeros until we get a munifactor of nhop
+    zer =  np.zeros((nhop - (N_sample % nhop), NOfChann))
+    x = np.append(x, zer, axis=0)
+    N_frames = int(N_sample / nhop - 1)
+    N_sample  = len(x)
+    
+    featurs = np.zeros(shape = (N_frames, N_tua, PN))
+    for frame in range(0, N_frames):
+        start = frame * (nfft - nhop)
+        end = start + nfft
+        featurs[frame, :, :] = GCC_features_one_frame(x[start:end], fs, tua_grid)
+    
+    return featurs
+
+def max_element_tua(features, Ntua):
+    max_indices = np.argmax(features, axis=1)
+    return max_indices - Ntua
+
+def interpolate(x, fs, upFactor, downfactor):
+    up_fs = fs * upFactor
+    # Resample
+    upsampled_signal = resample_poly(x, upFactor, downfactor, axis=0)
+    return [upsampled_signal, up_fs ]
+
 
 if __name__ == '__main__':
-    # wav,fs=sf.read('C:/Users/ido26/Documents/vscode projects\Localizetion project/first.wav')
-    # res = GCC_phat(wav[:1024,:],fs)
+    # Exemples
+    # exemple 1 -> recording the signals using the 2 comuter mics   
+    # audio_out,fs1 = sf.read("C:/Users/ido26/Documents/vscode projects/Localizetion project/audio_out.wav")
+    
+    # n = np.arange(-25,26)
+    # res = GCC_features_full_signals(audio_out, fs1, 1024, 512, 25, 2)
+    # delays = max_element_tua(res, 25)
 
-    # Example microphone positions (in meters)
-    mic1 = np.array([-1, 0.0]) #meters
-    mic2 = np.array([1, 0.0]) #meters
+    # ploting remdom frame coreletion
+    # plt.plot(n, res[44,:])
+    # plt.xlabel('Time - n * fs')
+    # plt.ylabel('correletion value')
+    # plt.title('R(n*fs)')
+    # plt.show()
+    
+    # ploting the max correletion value - frame graph
+    # plt.plot(delays)
+    # plt.xlabel('Time - n * frame size')
+    # plt.ylabel('max arg correletion value')
+    # plt.title('Max arg, represent the estimated delay')
+    # plt.show()
 
-    f_talk = 4000 #[Hz]
-    fs = 16000 #16,000 Hz
-    n = np.arange(0, 1024)
-    #sig1 = np.sin(f_talk *2 * (np.pi) * n /fs)
-    #sig2 = np.sin(f_talk * 2 * (np.pi) * (n+67) / fs)
-    sig1 = np.zeros(1024)
-    sig2 = np.zeros(1024)
-    sig1[512] = 1
-    sig2[512 - 67] = 1
-    res = GCC_phat(np.array([mic1, mic2]), np.array([sig1, sig2]), fs )
-    print (res)
+    #-----------------------------------------------------------------------------------------------------------------------
+    # exemple 2 -> recording the signals using the output device, 6 channels
+    audio_6_outputs, fs2 = sf.read("C:/Users/ido26/Documents/vscode projects/Localizetion project/audio_out_4_mics.wav")
+    
+    # soundcheck
+    # -----------------------------------
+    # try_s , fs_up  = interpolate(audio_6_outputs, fs2, 8, 1)
+    # sd.play(try_s[:,1] ,fs_up )
+    # sd.wait()
+    # -----------------------------------
+    n = np.arange(-25,26)
+    res = GCC_features_full_signals(audio_6_outputs[:, 1:5], fs2, 1024, 512, 25, 4)
+    delays = max_element_tua(res, 25)
 
-    cor = correlation(sig1, sig2)
-    n2 = range(cor.size)
-
-    plt.plot(n2, cor)
+    # ploting remdom frame coreletion
+    plt.plot(n, res[44*4,:, 0]) #rendom frame(44), the first pair correletion
+    plt.xlabel('Time - n * fs')
+    plt.ylabel('correletion value')
+    plt.title('R(n*fs)')
     plt.show()
+
+
+    # ploting the max correletion value - frame graph
+    plt.plot(delays[:,0]) # the delays for the second pair
+    plt.xlabel('Time in frames ')
+    plt.ylabel('max arg correletion value')
+    plt.title('pair (0,1) represent the estimated delay')
+    plt.show()
+
+    plt.plot(delays[:,1]) # the delays for the second pair
+    plt.xlabel('Time - n * frame size')
+    plt.ylabel('max arg correletion value')
+    plt.title('Max arg, represent the estimated delay')
+    plt.show()
+
+    # plt.plot(delays[:,2]) # the delays for the second pair
+    # plt.xlabel('Time - n * frame size')
+    # plt.ylabel('max arg correletion value')
+    # plt.title('Max arg, represent the estimated delay')
+    # plt.show()
+
+    # plt.plot(delays[:,5]) # the delays for the second pair
+    # plt.xlabel('Time - n * frame size')
+    # plt.ylabel('max arg correletion value')
+    # plt.title('Max arg, represent the estimated delay')
+    # plt.show()
+
+
 
 
