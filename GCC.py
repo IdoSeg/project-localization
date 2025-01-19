@@ -6,7 +6,7 @@ import soundfile as sf
 from scipy.signal import resample_poly
 import sounddevice as sd
 
-def GCC_features_one_frame(x, fs, tua_grid):
+def GCC_features_one_frame(x, fs, tua_grid ,upSampeling = 1):
     '''
     Computes Generalized Cross-Correlation (GCC) features for a single frame of multichannel audio data.
 
@@ -33,10 +33,10 @@ def GCC_features_one_frame(x, fs, tua_grid):
     
     #tua_grid = np.arange(-25, 26)/fs #correlletion shifts axis 
     N_tua = len(tua_grid) #//51 as a defult
-    channalNum = np.arange(0, NOfChann) #array between 1 to number of sinals
+    channalNum = np.arange(0, NOfChann) # array between 1 to number of sinals
     PN = int(NOfChann * (NOfChann - 1)/2) #number of total possible combination
     
-    kp = np.array(list(iter.combinations(channalNum, 2))) #kp is a martix that any row combains to number that represent mic pair
+    kp = np.array(list(iter.combinations(channalNum, 2))) # kp is a martix that any row combains to number that represent mic pair
     feast = np.zeros((PN, N_tua)) #the final feateurs we send
     
     for kk in range(0, PN):
@@ -53,11 +53,11 @@ def GCC_features_one_frame(x, fs, tua_grid):
         kk2_spec = kk2_spec[0:N_freq]       
 
         P = kk1_spec * np.conj(kk2_spec)
-        P = P / np.abs(P) + np.finfo(np.float64).eps #added mechin epsilon to prevent divding by 0 in an extreme case
+        P = P / (np.abs(P) + np.finfo(np.float64).eps) # added mechin epsilon to prevent divding by 0 in an extreme case
 
         spec = np.zeros((N_freq, N_tua ))
         for ind in range(0, N_tua):
-            EXP = np.exp(-2j * np.pi * tua_grid[ind] * f.T)
+            EXP = np.exp(-2j * np.pi * (tua_grid[ind] / upSampeling) * f.T)
             spec[:,ind] = np.real(P * EXP)
         feast[kk,:] = np.sum(spec, axis=0)  
     return feast.T 
@@ -89,7 +89,7 @@ def GCC_features_full_signals(x, fs, nfft = 1024, nhop = 512, N_half_tua = 25, u
     '''
 
     # up sampeling
-    x, fs = interpolate(x, fs, upSampeling, 1)
+    # x, fs = interpolate(x, fs, upSampeling, 1)
 
     # varibles
     tua_grid = np.arange(-N_half_tua, N_half_tua + 1)/fs #correlletion shifts axis
@@ -109,11 +109,13 @@ def GCC_features_full_signals(x, fs, nfft = 1024, nhop = 512, N_half_tua = 25, u
     for frame in range(0, N_frames):
         start = frame * (nfft - nhop)
         end = start + nfft
-        featurs[frame, :, :] = GCC_features_one_frame(x[start:end], fs, tua_grid)
+        send = x[start:end]
+        #send, fs_int = interpolate(send, fs, upSampeling, 1)
+        featurs[frame, :, :] = GCC_features_one_frame(send, fs, tua_grid, upSampeling)
     
     return featurs
 
-def max_element_tua(features, Ntua):
+def max_element_tua(features, Ntua, upSampeling = 1):
     '''
      Computes the estimeted delay using max arg of the correletion time vector for each frame, pair in features.
 
@@ -124,7 +126,7 @@ def max_element_tua(features, Ntua):
         numpy.ndarray: A 2D array of integers values represents the estimeted delay for each (N_frames, PN)
     '''
     max_indices = np.argmax(features, axis=1)
-    return max_indices - Ntua
+    return (max_indices - Ntua)/upSampeling
 
 def interpolate(x, fs, upFactor, downfactor):
     '''
@@ -179,42 +181,64 @@ if __name__ == '__main__':
     # sd.wait()
     
     n = np.arange(-25,26)
-    res = GCC_features_full_signals(audio_6_outputs[:, 1:5], fs2, 1024, 512, 25, 4)
+    res = GCC_features_full_signals(audio_6_outputs[:, 1:5], fs2, 1024, 512, 25)
     delays = max_element_tua(res, 25)
 
     # ploting remdom frame coreletion
-    plt.plot(n, res[44,:, 0]) #rendom frame(44), the first pair correletion
-    plt.xlabel('Time - n * fs')
-    plt.ylabel('correletion value')
-    plt.title('Rendom frame corrletion values')
-    plt.show()
+    # plt.plot(n, res[44,:, 0]) #rendom frame(44), the first pair correletion
+    # plt.xlabel('Time - n * fs')
+    # plt.ylabel('correletion value')
+    # plt.title('Rendom frame corrletion values')
+    # plt.show()
 
 
     # ploting the max correletion value - frame graph
-    plt.plot(delays[:,0]) # the delays for the second pair
-    plt.xlabel('Time in frames ')
-    plt.ylabel('max arg correletion value')
-    plt.title('pair (0,1) represent the estimated delay')
+    # plt.plot(delays[:,0]) # the delays for the second pair
+    # plt.xlabel('Time in frames ')
+    # plt.ylabel('max arg correletion value')
+    # plt.title('pair (0,1) represent the estimated delay')
+    # plt.show()
+
+    #-----------------------------------------------------------------------------------------------------------------------
+    
+    # exemple 3, 4 - checking interpoletions possibels
+
+    exmple3, fs = sf.read("white_noise_out.wav")
+    # "white_noise_out.wav", "brown_noise_out.wav" , "talk_noise_out.wav"
+    # "pink_noise_out.wav", "green_noise_out.wav" 
+
+    res = GCC_features_full_signals(exmple3[:, 1:5], fs, 1024, 512, 25, 4)
+    delays = max_element_tua(res, 25, 4)
+
+    plt.subplot(2, 3, 1)
+    plt.plot(delays[:, 0])
+    plt.title("(1, 2)")
+
+    plt.subplot(2, 3, 2)
+    plt.plot(delays[:, 1])
+    plt.title("(1, 3)")
+
+    plt.subplot(2, 3, 3)
+    plt.plot(delays[:, 3])
+    plt.title("(1, 4)")
+
+    plt.subplot(2, 3, 4)
+    plt.plot(delays[:, 3])
+    plt.title("(2, 3)")
+
+    plt.subplot(2, 3, 5)
+    plt.plot(delays[:, 3])
+    plt.title("(2, 4)")
+
+    plt.subplot(2, 3, 6)
+    plt.plot(delays[:, 3])
+    plt.title("(3, 4)")
+
+    plt.suptitle("The max correlletion results")
     plt.show()
 
-    # plt.plot(delays[:,1]) # the delays for the second pair
-    # plt.xlabel('Time - n * frame size')
-    # plt.ylabel('max arg correletion value')
-    # plt.title('pair (0,2) represent the estimated delay')
-    # plt.show()
-
-    # plt.plot(delays[:,2]) # the delays for the second pair
-    # plt.xlabel('Time - n * frame size')
-    # plt.ylabel('max arg correletion value')
-    # plt.title('pair (0,3) represent the estimated delay')
-    # plt.show()
-
-    # plt.plot(delays[:,5]) # the delays for the second pair
-    # plt.xlabel('Time - n * frame size')
-    # plt.ylabel('max arg correletion value')
-    # plt.title('pair (2,3) represent the estimated delay')
-    # plt.show()
-
+    plt.plot(n, res[44,:, 1]) # rendom frame(44), the first pair correletion
+    plt.show()
 
 
 

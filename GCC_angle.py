@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.ma.core import argmax
 import soundfile as sf
+import itertools as iter
 
 # Function to calculate normalized cross-correlation between two signals
 def correlation(Signal1, Signal2):
@@ -45,6 +46,29 @@ def GCC_phat(Mics, Signals, fs):
     print("Check the micropones  indexses")
     return -1
 
+def sampel_estimetion(cords, speaker, fs):
+    c = 34300 # cm/s
+    NofChannel = len(cords)
+    PN = int(NofChannel * (NofChannel - 1)/2) # number of total possible combination
+    kp = np.array(list(iter.combinations(range(NofChannel), 2))) 
+    # kp is a martix that 
+    # any row combains to number that represent mic pair
+
+    dist = []
+    dist_calc = 0
+    for point in cords:
+        dist_calc = np.linalg.norm(speaker - point)
+        dist.append(dist_calc)
+
+
+    sam_evl = np.zeros(PN)
+    for i in range(0, PN):
+        k1 = kp[i, 0]
+        k2 = kp[i, 1]
+        sam_evl[i] = (dist[k2] - dist[k1]) * fs / c
+        print("The sampel estimation for the(", k1+1, ", ", k2+1, ") pair is: ", sam_evl[i])
+    return sam_evl
+
 if __name__ == '__main__':
     # wav,fs=sf.read('C:/Users/ido26/Documents/vscode projects\Localizetion project/first.wav')
     # res = GCC_phat(wav[:1024,:],fs)
@@ -63,17 +87,43 @@ if __name__ == '__main__':
     sig1[512] = 1
     sig2[512 - 67] = 1
     res = GCC_phat(np.array([mic1, mic2]), np.array([sig1, sig2]), fs )
-    print (res)
+    #print (res)
 
     cor = correlation(sig1, sig2)
     n2 = range(cor.size)
 
-    plt.plot(n2, cor)
-    plt.show()
+    # plt.plot(n2, cor)
+    # plt.show()
 
+    # ---------------------------------------------------------------------------------
+    # exemple 3 -> white, brown, talk
+    
+    d = 4.57 # cm
+    d_2 = d * np.sqrt(2)
 
+    mic1 = np.array([d_2/2, 0.0, 0.0]) # (x, y, z)
+    mic2 = np.array([0.0, d_2/2, 0.0])
+    mic3 = np.array([-d_2/2, 0.0, 0.0])
+    mic4 = np.array([0.0, -d_2/2, 0.0])
+    mics = np.array([mic1, mic2, mic3, mic4]) 
+    speaker = np.array([d_2/2 + 15, 0.0, 0.0])
 
+    print("For the first exempel(white, brown, talk) the estimetions are: ")
+    A = sampel_estimetion(mics, speaker, 16000)
 
+    # exemple 4 -> pink, green
+
+    mic1 = np.array([d, d, 0.0]) 
+    mic2 = np.array([0.0, d, 0.0])
+    mic3 = np.array([d, 0.0, 0.0])
+    mic4 = np.array([0.0, 0.0, 0.0]) 
+    mics = np.array([mic1, mic2, mic3, mic4]) 
+    speaker = np.array([d + 15, d, 0.0])
+
+    print()
+    print("For the second exempel(pink, green) the estimetions are: ")
+    B = sampel_estimetion(mics, speaker, 16000)
+    
 
 
 
