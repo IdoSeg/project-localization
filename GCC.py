@@ -62,7 +62,7 @@ def GCC_features_one_frame(x, fs, tua_grid ,upSampeling = 1):
         feast[kk,:] = np.sum(spec, axis=0)  
     return feast.T 
 
-def GCC_features_full_signals(x, fs, nfft = 1024, nhop = 512, N_half_tua = 25, upSampeling = 1):
+def GCC_features_full_signals(x, fs, nfft = 1024, overlap = 512, N_half_tua = 25, upSampeling = 1):
     '''
      Computes Generalized Cross-Correlation (GCC) features for full multichannel audio signals.
 
@@ -99,15 +99,15 @@ def GCC_features_full_signals(x, fs, nfft = 1024, nhop = 512, N_half_tua = 25, u
     PN = int(NOfChann * (NOfChann - 1)/2) #number of total possible combination
 
     # padding with zeros until we get a munifactor of nhop
-    zer =  np.zeros((nhop - (N_sample % nhop), NOfChann))
+    zer =  np.zeros((overlap - (N_sample % overlap), NOfChann))
     x = np.append(x, zer, axis=0)
-    N_frames = int(N_sample / nhop - 1)
+    N_frames = int(N_sample / overlap - 1)
     N_sample  = len(x)
 
     # orgnized the data into featuers
     featurs = np.zeros(shape = (N_frames, N_tua, PN))
     for frame in range(0, N_frames):
-        start = frame * (nfft - nhop)
+        start = frame * (nfft - overlap)
         end = start + nfft
         send = x[start:end]
         #send, fs_int = interpolate(send, fs, upSampeling, 1)
@@ -128,7 +128,7 @@ def max_element_tua(features, Ntua, upSampeling = 1):
     max_indices = np.argmax(features, axis=1)
     return (max_indices - Ntua)/upSampeling
 
-def interpolate(x, fs, upFactor, downfactor):
+def interpolate(x, fs, upFactor, downfactor = 1):
     '''
     resample x by factor of (upFactor/ downfactor) = resampling factor
 
@@ -142,7 +142,7 @@ def interpolate(x, fs, upFactor, downfactor):
         - The function up-samples the input signal withe the perpose of geting a highier angel resulotion
         - The function has the flexibility to also use down sample factor even though it is not in use 
     '''
-    up_fs = fs * upFactor
+    up_fs = fs * upFactor / downfactor
     # Resample
     upsampled_signal = resample_poly(x, upFactor, downfactor, axis=0)
     return [upsampled_signal, up_fs]
@@ -203,12 +203,17 @@ if __name__ == '__main__':
     
     # exemple 3, 4 - checking interpoletions possibels
 
-    exmple3, fs = sf.read("white_noise_out.wav")
+    exmple3, fs = sf.read("talk_noise_out.wav")
     # "white_noise_out.wav", "brown_noise_out.wav" , "talk_noise_out.wav"
     # "pink_noise_out.wav", "green_noise_out.wav" 
 
-    res = GCC_features_full_signals(exmple3[:, 1:5], fs, 1024, 512, 25, 4)
-    delays = max_element_tua(res, 25, 4)
+    # res = GCC_features_full_signals(exmple3[:, 1:5], fs, 1024, 512, 25, 4)
+    # delays = max_element_tua(res, 25, 4)
+
+    # exmple3, fs = interpolate(exmple3, fs, 1, 2)
+
+    res = GCC_features_full_signals(exmple3[:, 1:5], fs, 1024, 512, 25, 2)
+    delays = max_element_tua(res, 25, 2)
 
     plt.subplot(2, 3, 1)
     plt.plot(delays[:, 0])
@@ -239,6 +244,4 @@ if __name__ == '__main__':
 
     plt.plot(n, res[44,:, 1]) # rendom frame(44), the first pair correletion
     plt.show()
-
-
 
