@@ -101,8 +101,8 @@ def GCC_features_full_signals(x, fs, nfft = 1024, overlap = 512, N_half_tua = 25
     # padding with zeros until we get a munifactor of nhop
     zer =  np.zeros((overlap - (N_sample % overlap), NOfChann))
     x = np.append(x, zer, axis=0)
-    N_frames = int(N_sample / overlap - 1)
     N_sample  = len(x)
+    N_frames = int(N_sample / overlap - 1)
 
     # orgnized the data into featuers
     featurs = np.zeros(shape = (N_frames, N_tua, PN))
@@ -181,8 +181,8 @@ if __name__ == '__main__':
     # sd.wait()
     
     n = np.arange(-25,26)
-    res = GCC_features_full_signals(audio_6_outputs[:, 1:5], fs2, 1024, 512, 25)
-    delays = max_element_tua(res, 25)
+    # res = GCC_features_full_signals(audio_6_outputs[:, 1:5], fs2, 1024, 512, 25)
+    # delays = max_element_tua(res, 25)
 
     # ploting remdom frame coreletion
     # plt.plot(n, res[44,:, 0]) #rendom frame(44), the first pair correletion
@@ -212,7 +212,42 @@ if __name__ == '__main__':
 
     # exmple3, fs = interpolate(exmple3, fs, 1, 2)
 
-    res = GCC_features_full_signals(exmple3[:, 1:5], fs, 1024, 512, 25, 2)
+    # res = GCC_features_full_signals(exmple3[:, 1:5], fs, 1024, 512, 25, 2)
+    # delays = max_element_tua(res, 25, 2)
+
+    # plt.subplot(2, 3, 1)
+    # plt.plot(delays[:, 0])
+    # plt.title("(1, 2)")
+
+    # plt.subplot(2, 3, 2)
+    # plt.plot(delays[:, 1])
+    # plt.title("(1, 3)")
+
+    # plt.subplot(2, 3, 3)
+    # plt.plot(delays[:, 3])
+    # plt.title("(1, 4)")
+
+    # plt.subplot(2, 3, 4)
+    # plt.plot(delays[:, 3])
+    # plt.title("(2, 3)")
+
+    # plt.subplot(2, 3, 5)
+    # plt.plot(delays[:, 3])
+    # plt.title("(2, 4)")
+
+    # plt.subplot(2, 3, 6)
+    # plt.plot(delays[:, 3])
+    # plt.title("(3, 4)")
+
+    # plt.suptitle("The max correlletion results")
+    # plt.show()
+
+    # plt.plot(n, res[44,:, 1]) # rendom frame(44), the first pair correletion
+    # plt.show()
+
+    #-----------------------------------------------------------------------------------------------------------------------
+    exmpleData, fs = sf.read("seq22_MA0.wav")
+    res = GCC_features_full_signals(exmpleData[:, 1:5], fs, 8*1024, 8*512, 25, 2)
     delays = max_element_tua(res, 25, 2)
 
     plt.subplot(2, 3, 1)
@@ -224,7 +259,7 @@ if __name__ == '__main__':
     plt.title("(1, 3)")
 
     plt.subplot(2, 3, 3)
-    plt.plot(delays[:, 3])
+    plt.plot(delays[:, 2])
     plt.title("(1, 4)")
 
     plt.subplot(2, 3, 4)
@@ -232,16 +267,12 @@ if __name__ == '__main__':
     plt.title("(2, 3)")
 
     plt.subplot(2, 3, 5)
-    plt.plot(delays[:, 3])
+    plt.plot(delays[:, 4])
     plt.title("(2, 4)")
 
     plt.subplot(2, 3, 6)
-    plt.plot(delays[:, 3])
+    plt.plot(delays[:, 5])
     plt.title("(3, 4)")
 
     plt.suptitle("The max correlletion results")
     plt.show()
-
-    plt.plot(n, res[44,:, 1]) # rendom frame(44), the first pair correletion
-    plt.show()
-
